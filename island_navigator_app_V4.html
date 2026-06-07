@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Island Navigator App</title>
+
+<style>
+body{
+ margin:0;
+ background:#07101f;
+ color:white;
+ font-family:Arial;
+}
+
+#bar{
+ position:sticky;
+ top:0;
+ background:#111;
+ padding:10px;
+ z-index:50;
+}
+
+button{
+ margin-right:5px;
+}
+
+#map{
+ position:relative;
+ width:1600px;
+ height:1100px;
+ overflow:hidden;
+
+ background:
+ radial-gradient(circle at 20% 20%, rgba(0,255,255,.15), transparent 20%),
+ radial-gradient(circle at 80% 70%, rgba(0,255,255,.12), transparent 25%),
+ radial-gradient(circle at 60% 40%, rgba(0,200,255,.10), transparent 30%),
+ linear-gradient(
+ 180deg,
+ #0f6ea8 0%,
+ #0b5f99 20%,
+ #094d82 40%,
+ #083d69 60%,
+ #072f54 80%,
+ #05223e 100%
+ );
+}
+.statusDot{
+ width:9px;
+ height:9px;
+ border-radius:50%;
+ margin:2px auto 0 auto;
+ border:1px solid white;
+}
+
+.status-not{background:red;}
+.status-done{background:lime;}
+
+#map{
+ transform-origin:center center;
+ transition:transform .15s linear;
+}
+#map::before{
+ content:"";
+ position:absolute;
+ inset:0;
+
+ background:
+ repeating-linear-gradient(
+ 25deg,
+ rgba(255,255,255,.04) 0px,
+ rgba(255,255,255,.04) 2px,
+ transparent 3px,
+ transparent 60px
+ );
+
+ pointer-events:none;
+ z-index:0;
+}
+#paths{
+ position:absolute;
+ left:0;
+ top:0;
+ width:1600px;
+ height:1100px;
+ z-index:1;
+ pointer-events:auto;
+}
+.current{
+ color:#6cff6c;
+ font-weight:bold;
+ font-size:34px;
+ background:transparent;
+ z-index:999 !important;
+}
+.item{
+ position:absolute;
+ cursor:pointer;
+ user-select:none;
+ padding:2px;
+ background:transparent;
+ border:none;
+ box-shadow:none;
+ z-index:5;
+ white-space:nowrap;
+ text-align:center;
+}
+.movable{
+ cursor:move;
+}
+
+.island{
+ color:white;
+ font-weight:bold;
+}
+
+.current{
+ font-size:42px;
+ z-index:999 !important;
+}
+
+.hazard{
+ color:#ff4d4d;
+ font-size:26px;
+ text-shadow:
+ 0 0 10px red,
+ 0 0 20px darkred;
+}
+
+.twilight{
+ color:#d18cff;
+ font-weight:bold;
+}
+
+.shipwreck{
+ color:#ffb347;
+ font-weight:bold;
+}
+
+.treasure{
+ color:#ffd700;
+ font-weight:bold;
+}
+
+#panel{
+ position:fixed;
+ right:10px;
+ top:65px;
+ background:#111;
+ border:1px solid #555;
+ padding:10px;
+ width:260px;
+ display:none;
+ z-index:100;
+}
+
+textarea{
+ width:100%;
+ height:110px;
+}
+
+.stackedMarker{
+ text-align:center;
+ line-height:1.1;
+}
+
+.markerIcon{
+ width:32px;
+ height:22px;
+ margin:0 auto 2px auto;
+ border-radius:55% 45% 50% 50%;
+ background:
+  radial-gradient(circle at 35% 35%, #7ee27e 0 25%, transparent 26%),
+  radial-gradient(circle at 65% 45%, #4caf50 0 28%, transparent 29%),
+  linear-gradient(135deg,#d6b36a,#8b6f35);
+ box-shadow:
+  0 0 8px rgba(0,255,255,.8),
+  0 0 16px rgba(0,200,255,.5);
+ border:1px solid rgba(255,255,255,.5);
+}
+.twilight .markerIcon{
+ box-shadow:
+  0 0 10px #d18cff,
+  0 0 22px #a64dff;
+ border:1px solid #d18cff;
+}
+.markerName{
+ color:white;
+ font-size:11px;
+ font-weight:bold;
+
+ text-shadow:
+ -2px -2px 0 #000,
+  2px -2px 0 #000,
+ -2px  2px 0 #000,
+  2px  2px 0 #000,
+  0px  0px 8px #000;
+}
+
+
+#northArrow{
+ position:absolute;
+
+ left:1267px;
+ top:529px;
+
+ z-index:1000;
+
+ color:white;
+ font-size:42px;
+ font-weight:bold;
+ text-align:center;
+
+ transform:rotate(1125deg);
+ transform-origin:center center;
+
+ text-shadow:
+ 0 0 8px white,
+ 0 0 20px white;
+}
+</style>
+</head>
+
+<body>
+
+<div id="bar">
+<button onclick="addMarker('🚢 Shipwreck','shipwreck')">Add Shipwreck</button>
+<button onclick="addMarker('💰 Treasure','treasure')">Add Treasure</button>
+<button onclick="addMarker('🏠 Base','base')">Add Base</button>
+
+<button onclick="toggleIslandComplete()">✅ Toggle Complete</button>
+
+<button onclick="renameSelected()">Rename Selected</button>
+<button onclick="removeSelected()">Remove Selected</button>
+<button onclick="togglePathMode()">Draw Path</button>
+
+<span id="modeText">Normal Mode</span>
+</div>
+<div id="map">
+    <div id="northArrow">▲<br>N</div>
+    <svg id="paths" width="1600" height="1100"></svg>
+</div>
+
+<div id="panel">
+<h3 id="title"></h3>
+<textarea id="notes"></textarea>
+<br><br>
+<button onclick="saveNote()">Save Notes</button>
+<button onclick="closeNotes()">Close</button>
+</div>
+
+ height:1100px;
+ z-index:1;
+ pointer-events:auto;
+}
+<script>
+let savedMarkers=JSON.parse(localStorage.getItem("savedMarkers")||"[]");
+let savedPaths=JSON.parse(localStorage.getItem("savedPaths")||"[]");
+let islandStatus=JSON.parse(localStorage.getItem("islandStatus")||"{}");
+
+const map=document.getElementById("map");
+
+let selected=null;
+let selectedPath=null;
+let pathMode=false;
+let pathStart=null;
+let notes=JSON.parse(localStorage.getItem("islandNotes")||"{}");
+
+function getMarkerText(el){
+ return el.dataset.rawText || el.textContent;
+}
+
+function drag(el,movable=true){
+ if(!movable)return;
+
+ el.classList.add("movable");
+
+ let dragging=false;
+ let offsetX=0;
+ let offsetY=0;
+
+ function start(x,y){
+  dragging=true;
+  const r=el.getBoundingClientRect();
+  offsetX=x-r.left;
+  offsetY=y-r.top;
+ }
+
+ function move(x,y){
+  if(!dragging)return;
+
+  const r=map.getBoundingClientRect();
+
+  el.style.left=(x-r.left-offsetX)+"px";
+  el.style.top=(y-r.top-offsetY)+"px";
+
+  if(el.classList.contains("current")){
+   localStorage.setItem("pinX",parseInt(el.style.left));
+   localStorage.setItem("pinY",parseInt(el.style.top));
+  }
+
+  if(el.dataset.savedMarkerId){
+   const id=String(el.dataset.savedMarkerId);
+   const marker=savedMarkers.find(m=>String(m.id)===id);
+
+   if(marker){
+    marker.x=parseInt(el.style.left);
+    marker.y=parseInt(el.style.top);
+    marker.text=getMarkerText(el);
+    localStorage.setItem("savedMarkers",JSON.stringify(savedMarkers));
+   }
+  }
+ }
+
+ el.addEventListener("mousedown",e=>start(e.clientX,e.clientY));
+ document.addEventListener("mousemove",e=>move(e.clientX,e.clientY));
+ document.addEventListener("mouseup",()=>dragging=false);
+
+ el.addEventListener("touchstart",e=>{
+  const t=e.touches[0];
+  start(t.clientX,t.clientY);
+ });
+
+ document.addEventListener("touchmove",e=>{
+  const t=e.touches[0];
+  move(t.clientX,t.clientY);
+ });
+
+ document.addEventListener("touchend",()=>dragging=false);
+}
+
+function setMarkerDisplay(el,text,cls){
+ el.dataset.rawText=text;
+
+ if(cls==="island" || cls==="twilight"){
+  const firstSpace=text.indexOf(" ");
+  const icon=firstSpace>-1 ? text.substring(0,firstSpace) : text;
+  const name=firstSpace>-1 ? text.substring(firstSpace+1) : "";
+  const status=islandStatus[text] || "not";
+
+  el.innerHTML=
+   '<div class="stackedMarker">'+
+   '<div class="markerIcon">'+icon+'</div>'+
+   '<div class="markerName">'+name+'</div>'+
+   '<div class="statusDot status-'+status+'"></div>'+
+   '</div>';
+ }else{
+  el.textContent=text;
+ }
+}
+
+function make(text,x,y,cls,movable=true,savedId=null){
+ const el=document.createElement("div");
+ el.className="item "+cls;
+
+ if(savedId!==null){
+  el.dataset.savedMarkerId=String(savedId);
+ }
+
+ setMarkerDisplay(el,text,cls);
+
+ el.style.left=x+"px";
+ el.style.top=y+"px";
+
+ el.onclick=()=>{
+  if(pathMode){
+   if(!pathStart){
+    pathStart=el;
+    el.style.outline="2px solid #4aa3ff";
+   }else{
+    drawPath(pathStart,el);
+    pathStart.style.outline="";
+    pathStart=null;
+   }
+   return;
+  }
+
+  selected=el;
+
+  if(selectedPath){
+   selectedPath.setAttribute("stroke","#4aa3ff");
+   selectedPath.setAttribute("stroke-width","4");
+   selectedPath=null;
+  }
+
+  document.querySelectorAll(".item").forEach(i=>i.style.outline="");
+  el.style.outline="2px solid yellow";
+
+  const key=getMarkerText(el);
+  document.getElementById("panel").style.display="block";
+  document.getElementById("title").textContent=key;
+  document.getElementById("notes").value=notes[key]||"";
+ };
+
+ el.ondblclick=()=>{
+  if(cls==="island" || cls==="twilight"){
+   alert("Islands cannot be renamed.");
+   return;
+  }
+
+  const old=getMarkerText(el);
+  const n=prompt("Rename:",old);
+
+  if(n && n.trim()!==""){
+   const newName=n.trim();
+   setMarkerDisplay(el,newName,cls);
+
+   if(notes[old]){
+    notes[newName]=notes[old];
+    delete notes[old];
+    localStorage.setItem("islandNotes",JSON.stringify(notes));
+   }
+  }
+ };
+
+ map.appendChild(el);
+ drag(el,movable);
+
+ return el;
+}
+
+function saveNote(){
+ if(!selected)return;
+
+ const key=getMarkerText(selected);
+ notes[key]=document.getElementById("notes").value;
+ localStorage.setItem("islandNotes",JSON.stringify(notes));
+ alert("Notes saved");
+}
+
+function closeNotes(){
+ document.getElementById("panel").style.display="none";
+ selected=null;
+}
+
+function renameSelected(){
+ if(!selected){
+  alert("Click something first.");
+  return;
+ }
+
+ if(selected.classList.contains("island") || selected.classList.contains("twilight")){
+  alert("Islands cannot be renamed.");
+  return;
+ }
+
+ const old=getMarkerText(selected);
+ const n=prompt("Rename:",old);
+
+ if(n && n.trim()!==""){
+  const newName=n.trim();
+  selected.textContent=newName;
+  selected.dataset.rawText=newName;
+
+  if(notes[old]){
+   notes[newName]=notes[old];
+   delete notes[old];
+   localStorage.setItem("islandNotes",JSON.stringify(notes));
+  }
+ }
+}
+
+function toggleIslandComplete(){
+ if(!selected){
+  alert("Click an island first.");
+  return;
+ }
+
+ if(!selected.classList.contains("island") &&
+    !selected.classList.contains("twilight")){
+  alert("Only islands can be marked complete.");
+  return;
+ }
+
+ const key=getMarkerText(selected);
+
+ islandStatus[key]=islandStatus[key]==="done" ? "not" : "done";
+ localStorage.setItem("islandStatus",JSON.stringify(islandStatus));
+
+ if(selected.classList.contains("twilight")){
+  setMarkerDisplay(selected,key,"twilight");
+ }else{
+  setMarkerDisplay(selected,key,"island");
+ }
+}
+
+function removeSelected(){
+ if(selectedPath){
+  const pathId=String(selectedPath.dataset.pathId);
+
+  selectedPath.remove();
+
+  savedPaths=savedPaths.filter(p=>String(p.id)!==pathId);
+  localStorage.setItem("savedPaths",JSON.stringify(savedPaths));
+
+  selectedPath=null;
+  return;
+ }
+
+ if(!selected){
+  alert("Select a marker or path first.");
+  return;
+ }
+
+ if(selected.classList.contains("island") ||
+    selected.classList.contains("twilight") ||
+    selected.classList.contains("hazard") ||
+    selected.classList.contains("current")){
+  alert("Islands, Twilight Isle, Hazards, and the Current Position Pin cannot be deleted.");
+  return;
+ }
+
+ if(confirm("Delete "+getMarkerText(selected)+" ?")){
+  if(selected.dataset.savedMarkerId){
+   const id=String(selected.dataset.savedMarkerId);
+   savedMarkers=savedMarkers.filter(m=>String(m.id)!==id);
+   localStorage.setItem("savedMarkers",JSON.stringify(savedMarkers));
+  }
+
+  selected.remove();
+  selected=null;
+  document.getElementById("panel").style.display="none";
+ }
+}
+
+function addMarker(name,cls){
+ const marker={
+  id:String(Date.now())+"_"+Math.random(),
+  text:name,
+  x:600,
+  y:500,
+  cls:cls
+ };
+
+ savedMarkers.push(marker);
+ localStorage.setItem("savedMarkers",JSON.stringify(savedMarkers));
+
+ make(marker.text,marker.x,marker.y,marker.cls,true,marker.id);
+}
+
+function restoreMarkers(){
+ savedMarkers.forEach(marker=>{
+  make(marker.text,marker.x,marker.y,marker.cls,true,marker.id);
+ });
+}
+
+function togglePathMode(){
+ pathMode=!pathMode;
+ pathStart=null;
+
+ document.getElementById("modeText").textContent=
+  pathMode ? "Path Mode: click two markers" : "Normal Mode";
+}
+
+function drawPath(a,b){
+ const ax=parseInt(a.style.left)+a.offsetWidth/2;
+ const ay=parseInt(a.style.top)+a.offsetHeight/2;
+ const bx=parseInt(b.style.left)+b.offsetWidth/2;
+ const by=parseInt(b.style.top)+b.offsetHeight/2;
+
+ const path={
+  id:String(Date.now())+"_"+Math.random(),
+  x1:ax,
+  y1:ay,
+  x2:bx,
+  y2:by
+ };
+
+ savedPaths.push(path);
+ localStorage.setItem("savedPaths",JSON.stringify(savedPaths));
+
+ createPathLine(path);
+}
+
+function createPathLine(path){
+ const svg=document.getElementById("paths");
+
+ const line=document.createElementNS("http://www.w3.org/2000/svg","line");
+
+ line.dataset.pathId=String(path.id);
+
+ line.setAttribute("x1",path.x1);
+ line.setAttribute("y1",path.y1);
+ line.setAttribute("x2",path.x2);
+ line.setAttribute("y2",path.y2);
+ line.setAttribute("stroke","#4aa3ff");
+ line.setAttribute("stroke-width","4");
+ line.setAttribute("stroke-dasharray","10 8");
+
+ line.style.pointerEvents="all";
+ line.style.cursor="pointer";
+
+ line.onclick=(e)=>{
+  e.stopPropagation();
+
+  if(selectedPath){
+   selectedPath.setAttribute("stroke","#4aa3ff");
+   selectedPath.setAttribute("stroke-width","4");
+  }
+
+  selectedPath=line;
+  selected=null;
+
+  document.querySelectorAll(".item").forEach(i=>i.style.outline="");
+
+  line.setAttribute("stroke","#ffff00");
+  line.setAttribute("stroke-width","7");
+ };
+
+ svg.appendChild(line);
+}
+
+function restorePaths(){
+ savedPaths.forEach(p=>{
+  createPathLine(p);
+ });
+}
+
+/* North Arrow */
+const northArrow=document.getElementById("northArrow");
+if(northArrow){
+ northArrow.style.left="1318px";
+ northArrow.style.top="554px";
+ northArrow.style.pointerEvents="none";
+}
+
+/* Current Position */
+make(
+ "📍",
+ parseInt(localStorage.getItem("pinX")||800),
+ parseInt(localStorage.getItem("pinY")||500),
+ "current",
+ true
+);
+
+/*island labels */
+make("🏝 Whitecap Isle",448,77,"island",false);          //01
+make("🏝 Brightwater Isle",705,50,"island",false);       //02
+make("🏝 Echo Isle",893,68,"island",false);              //03
+make("🏝 Windwhisper Isle",1123,40,"island",false);      //04
+make("🏝 Skyreach Isle",1258,52,"island",false);         //05
+make("🏝 Cliffbreak Isle",464,193,"island",false);       //06
+make("🏝 Crystal Reach",690,208,"island",false);         //07
+make("🏝 Cloudbreak Isle",827,182,"island",false);       //08
+make("🏝 Silverwake Isle",1104,210,"island",false);      //09
+make("🏝 Gunstroke Isle",359,297,"island",false);        //10
+make("🏝 Veilwind Isle",542,314,"island",false);         //11
+make("🏝 Silentborne Isle",680,335,"island",false);      //12  
+make("🏝 Moonshard Isle",797,303,"island",false);        //13
+make("🏝 Starfall Isle",922,349,"island",false);         //14
+make("🏝 Luminara Isle",1182,366,"island",false);        //15
+make("🏝 Dawnmist Isle",307,413,"island",false);         //16
+make("🏝 Silentwatch Isle",571,428,"island",false);      //17
+make("🏝 Ashenhold Isle",708,464,"island",false);        //18
+make("🏝 Reaper's Isle",844,476,"island",false);         //19
+make("🏝 Dreadwake Isle",981,538,"island",false);        //20
+make("🏝 Deepcurrent Isle",1070,455,"island",false);     //21
+make("🏝 Deathmire Isle",1138,564,"island",false);       //22
+make("🏝 Mistborne Isle",1258,470,"island",false);       //23
+make("🏝 Frostbite Isle",1250,599,"island",false);       //24  
+make("🏝 Northspike Isle",300,539,"island",false);       //25
+make("🏝 Shiverpeak Isle",419,584,"island",false);       //26  
+make("🏝 Glacier's End",493,680,"island",false);         //27
+make("🏝 Icelight Isle",615,718,"island",false);         //28
+make("🏝 Tidebound Isle",788,687,"island",false);        //29
+make("🏝 Twilight Isle",767,561,"twilight",false);       //30
+make("🏝 Southspire Isle",878,594,"island",false);       //31
+make("🏝 Stormwatch Isle",940,706,"island",false);       //32 
+make("🏝 Emberfall Isle",1047,660,"island",false);       //33
+make("🏝 Seabreak Isle",1146,738,"island",false);        //34
+make("🏝 Ravenrock Isle",1201,832,"island",false);       //35
+make("🏝 Driftwood Isle",301,673,"island",false);        //36
+make("🏝 Coralheart Isle",697,819,"island",false);       //37
+make("🏝 Tempest Isle",987,815,"island",false);          //38
+make("🏝 Sunspire Isle",1077,911,"island",false);        //39
+make("🏝 Ironclad Isle",456,880,"island",false);         //40
+make("🏝 Whispering Isle",566,995,"island",false);       //41
+make("🏝 Blackreef Isle",364,965,"island",false);        //42
+make("🏝 Goldwater Isle",802,943,"island",false);        //43
+make("🏝 Dragon's Rest",737,1027,"island",false);        //44
+make("🏝 Ghostwind Isle",1186,992,"island",false);       //45
+/* Hazards */
+make("☠️ Hazard 1",1233,200,"hazard",false);
+make("☠️ Hazard 2",679,622,"hazard",false);
+make("☠️ Hazard 3",1016,998,"hazard",false);
+make("☠️ Hazard 4",927,927,"hazard",false);
+
+/* Restore saved custom markers and paths last */
+restoreMarkers();
+restorePaths();
+</script>
+
+</body>
+</html>
